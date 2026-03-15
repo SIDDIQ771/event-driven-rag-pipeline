@@ -6,7 +6,8 @@ def parse_intent(query: str):
     intent = {
         "issue_key": None,
         "field": None,
-        "resource": None
+        "resource": None,
+        "lookup_ticket": False
     }
 
     # Detect JIRA issue key
@@ -16,24 +17,35 @@ def parse_intent(query: str):
         intent["resource"] = "jira"
 
     # Detect field-level intent
-    if "status" in q:
-        intent["field"] = "status"
-    elif "summary" in q:
-        intent["field"] = "summary"
-    elif "description" in q:
-        intent["field"] = "description"
-    elif "last comment" in q or "latest comment" in q:
-        intent["field"] = "last_comment"
-    elif "assignee" in q:
-        intent["field"] = "assignee"
-    elif "priority" in q:
-        intent["field"] = "priority"
-    elif "created" in q:
-        intent["field"] = "created"
-    elif "updated" in q:
-        intent["field"] = "updated"
-    elif "reporter" in q:
-        intent["field"] = "reporter"
+    field_map = {
+        "status": "status",
+        "summary": "summary",
+        "description": "description",
+        "last comment": "last_comment",
+        "latest comment": "last_comment",
+        "assignee": "assignee",
+        "priority": "priority",
+        "created": "created",
+        "updated": "updated",
+        "reporter": "reporter"
+    }
+    for key, value in field_map.items():
+        if key in q:
+            intent["field"] = value
+
+    # Detect lookup intent
+    lookup_patterns = [
+        "which jira ticket",
+        "which ticket",
+        "what ticket",
+        "where is this tracked",
+        "which issue covers",
+        "which story",
+        "which epic"
+    ]
+    if any(p in q for p in lookup_patterns):
+        intent["lookup_ticket"] = True
+        intent["resource"] = "jira"
 
     # Detect shared folder intent
     if any(word in q for word in ["document", "pdf", "shared folder", "file", "spec", "design"]):

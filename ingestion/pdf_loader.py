@@ -1,14 +1,8 @@
-import PyPDF2
+import fitz  # PyMuPDF
 
-def load_pdf(file_path):
+def load_pdf(path: str) -> str:
     text = ""
-
-    try:
-        with open(file_path, "rb") as f:
-            reader = PyPDF2.PdfReader(f)
-            for page in reader.pages:
-                text += page.extract_text() or ""
-    except Exception as e:
-        print(f"[PDF Loader] Error reading {file_path}: {e}")
-
+    with fitz.open(path) as pdf:
+        for page in pdf:
+            text += page.get_text()
     return text

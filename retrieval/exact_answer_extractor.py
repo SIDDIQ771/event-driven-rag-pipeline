@@ -1,41 +1,22 @@
-def extract_exact_answer(query: str, text: str):
+def extract_exact_answer(query: str, text: str, metadata: dict):
     q = query.lower()
 
-    # Status
-    if "status" in q and "STATUS:" in text:
-        return text.split("STATUS:")[1].split("\n")[0].strip()
+    # If metadata contains the field, return directly
+    field_map = {
+        "status": "status",
+        "summary": "summary",
+        "description": "description",
+        "last_comment": "last_comment",
+        "assignee": "assignee",
+        "priority": "priority",
+        "created": "created",
+        "updated": "updated",
+        "reporter": "reporter"
+    }
 
-    # Summary
-    if "summary" in q and "SUMMARY:" in text:
-        return text.split("SUMMARY:")[1].split("DESCRIPTION:")[0].strip()
+    for key, meta_key in field_map.items():
+        if key in q and meta_key in metadata:
+            return metadata[meta_key]
 
-    # Description
-    if "description" in q and "DESCRIPTION:" in text:
-        return text.split("DESCRIPTION:")[1].split("COMMENTS:")[0].strip()
-
-    # Last comment
-    if ("last comment" in q or "latest comment" in q) and "COMMENTS:" in text:
-        return text.split("COMMENTS:")[1].strip()
-
-    # Assignee
-    if "assignee" in q and "ASSIGNEE:" in text:
-        return text.split("ASSIGNEE:")[1].split("\n")[0].strip()
-
-    # Priority
-    if "priority" in q and "PRIORITY:" in text:
-        return text.split("PRIORITY:")[1].split("\n")[0].strip()
-
-    # Created
-    if "created" in q and "CREATED:" in text:
-        return text.split("CREATED:")[1].split("\n")[0].strip()
-
-    # Updated
-    if "updated" in q and "UPDATED:" in text:
-        return text.split("UPDATED:")[1].split("\n")[0].strip()
-
-    # Reporter
-    if "reporter" in q and "REPORTER:" in text:
-        return text.split("REPORTER:")[1].split("\n")[0].strip()
-
-    # Default → return full text
+    # Fallback → return text
     return text.strip()

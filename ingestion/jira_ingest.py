@@ -1,80 +1,32 @@
 import requests
-import base64
 from config.settings import settings
-from ingestion.chunker import chunk_text
-from ingestion.embedder import embed_and_store
+from vectorstore.chroma_client import get_chroma_client
 
-
-def extract_issue_text(issue):
-    fields = issue.get("fields", {})
-
-    summary = fields.get("summary", "")
-    description = fields.get("description", "")
-
-    comments = fields.get("comment", {}).get("comments", [])
-    comment_text = "\n".join(
-        c.get("body", {}).get("content", [{}])[0].get("content", [{}])[0].get("text", "")
-        for c in comments
-    )
-
-    return f"""
-    KEY: {issue['key']}
-    SUMMARY: {summary}
-
-    DESCRIPTION:
-    {description}
-
-    COMMENTS:
-    {comment_text}
-    """
+db = get_chroma_client()
 
 
 def _build_jira_headers():
-    """Builds the correct Basic Auth header for Atlassian Cloud."""
-    auth_string = f"{settings.JIRA_EMAIL}:{settings.JIRA_API_TOKEN}"
-    encoded = base64.b64encode(auth_string.encode()).decode()
-
     return {
-        "Authorization": f"Basic {encoded}",
-        "Accept": "application/json"
+        "Authorization": f"Basic {settings.JIRA_API_TOKEN}",
+        "Accept": "application/json",
+        "Content-Type": "application/json"
     }
 
 
-def process_single_jira_issue(issue_key):
-    print(f"[JIRA] Processing single issue: {issue_key}")
-
-    url = f"{settings.JIRA_BASE_URL}/rest/api/3/issue/{issue_key}"
-    headers = _build_jira_headers()
-
-    response = requests.get(url, headers=headers)
-
-    if response.status_code != 200:
-        print("\n❌ [JIRA] FETCH ERROR")
-        print("URL:", url)
-        print("Status:", response.status_code)
-        print("Response:", response.text, "\n")
-        return
-
-    issue = response.json()
-    text = extract_issue_text(issue)
-    chunks = chunk_text(text)
-
-    embed_and_store(
-        chunks,
-        metadata={"source": f"JIRA-{issue_key}"}
-    )
-
-    print(f"[JIRA] Stored {len(chunks)} chunks from {issue_key}")
-
-
 def process_jira():
+    """
+    Fetch all issues from the JIRA project using the new /search/jql API.
+    """
     url = f"{settings.JIRA_BASE_URL}/rest/api/3/search/jql"
     headers = _build_jira_headers()
 
     payload = {
-        "jql": "project = RAG ORDER BY created DESC",
+        "jql": f"project = {settings.JIRA_PROJECT_KEY} ORDER BY created DESC",
         "maxResults": 100,
-        "fields": ["summary", "description", "comment"]
+        "fields": [
+            "summary", "description", "comment", "status",
+            "priority", "assignee", "reporter", "created", "updated"
+        ]
     }
 
     response = requests.post(url, headers=headers, json=payload)
@@ -93,3 +45,57 @@ def process_jira():
         process_single_jira_issue(issue["key"])
 
 
+def process_single_jira_issue(issue_key: str):
+    """
+    Fetch a single JIRA issue and store its metadata + chunked text in Chroma.
+    """
+    url = f"{settings.JIRA_BASE_URL}/rest/api/3/issue/{issue_key}"
+    headers = _build_jira_headers()
+
+    response = requests.get(url, headers=headers)
+    if response.status_code != 200:
+        print(f"❌ Failed to fetch issue {issue_key}: {response.text}")
+        return
+
+    data = response.json()
+    fields = data["fields"]
+
+    # Extract metadata fields
+    metadata = {
+        "source": f"JIRA-{issue_key}",
+        "issue_key": issue_key,
+        "summary": fields.get("summary"),
+        "description": fields.get("description"),
+        "status": fields["status"]["name"] if fields.get("status") else None,
+        "priority": fields["priority"]["name"] if fields.get("priority") else None,
+        "assignee": fields["assignee"]["displayName"] if fields.get("assignee") else None,
+        "reporter": fields["reporter"]["displayName"] if fields.get("reporter") else None,
+        "created": fields.get("created"),
+        "updated": fields.get("updated"),
+        "last_comment": (
+            fields["comment"]["comments"][-1]["body"]
+            if fields.get("comment") and fields["comment"]["comments"]
+            else None
+        )
+    }
+
+    # Chunk text contains only description + last comment
+    description = metadata["description"] or "No description provided."
+    last_comment = metadata["last_comment"] or "No comments available."
+
+    text_chunk = f"""
+DESCRIPTION:
+{description}
+
+COMMENTS:
+{last_comment}
+"""
+
+    # Store in vector DB
+    db.add(
+        documents=[text_chunk],
+        metadatas=[metadata],
+        ids=[f"jira-{issue_key}"]
+    )
+
+    print(f"[JIRA] Stored issue {issue_key} in vector DB.")
