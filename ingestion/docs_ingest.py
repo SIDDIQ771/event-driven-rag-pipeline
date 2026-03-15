@@ -1,38 +1,59 @@
 import os
-import sys
-from langchain_community.document_loaders import PyPDFLoader, Docx2txtLoader, TextLoader
 from ingestion.chunker import chunk_text
 from ingestion.embedder import embed_and_store
+from ingestion.pdf_loader import load_pdf
+from config.settings import settings
+from ingestion.docx_loader import load_docx
 
-# Ensure project root is on PYTHONPATH
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+def load_document_text(file_path):
+    ext = file_path.lower()
 
-SHARED_FOLDER_PATH = os.path.join(os.getcwd(), "Shared_Folder")
+    if ext.endswith(".pdf"):
+        return load_pdf(file_path)
 
-def load_document(filepath):
-    ext = os.path.splitext(filepath)[1].lower()
-    if ext == ".pdf":
-        loader = PyPDFLoader(filepath)
-    elif ext == ".docx":
-        loader = Docx2txtLoader(filepath)
-    elif ext in [".txt", ".md"]:
-        loader = TextLoader(filepath)
-    else:
-        raise ValueError(f"Unsupported file type: {ext}")
-    docs = loader.load()
-    return "\n".join([d.page_content for d in docs])
+    if ext.endswith(".txt"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
 
-def process_document(filepath):
-    print(f"[Ingest] Processing: {filepath}")
-    text = load_document(filepath)
+    return ""
+
+def process_single_document(file_path):
+    print(f"[Docs] Processing file: {file_path}")
+
+    text = load_document_text(file_path)
+    if not text.strip():
+        print(f"[Docs] Skipped empty or unsupported file: {file_path}")
+        return
+
     chunks = chunk_text(text)
-    embed_and_store(chunks, metadata={"source": filepath})
-    print(f"[Ingest] Completed: {filepath}")
 
-if __name__ == "__main__":
-    print(f"[Ingest] Scanning folder: {SHARED_FOLDER_PATH}")
-    for filename in os.listdir(SHARED_FOLDER_PATH):
-        filepath = os.path.join(SHARED_FOLDER_PATH, filename)
-        if os.path.isfile(filepath):
-            process_document(filepath)
-    print("[Ingest] Done.")
+    embed_and_store(
+        chunks,
+        metadata={"source": f"DOC-{os.path.basename(file_path)}"}
+    )
+
+    print(f"[Docs] Stored {len(chunks)} chunks from {file_path}")
+
+def process_documents():
+    folder = settings.SHARED_FOLDER_PATH
+
+    for filename in os.listdir(folder):
+        path = os.path.join(folder, filename)
+        if os.path.isfile(path):
+            process_single_document(path)
+
+def load_document_text(file_path):
+    ext = file_path.lower()
+
+    if ext.endswith(".pdf"):
+        return load_pdf(file_path)
+
+    if ext.endswith(".docx"):
+        return load_docx(file_path)
+
+    if ext.endswith(".txt"):
+        with open(file_path, "r", encoding="utf-8") as f:
+            return f.read()
+
+    return ""
+

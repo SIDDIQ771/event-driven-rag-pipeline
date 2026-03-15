@@ -10,6 +10,9 @@ def answer_query(user_query):
     retrieved = retrieve_chunks(rewritten)
     ranked = rank_results(retrieved)
     context = assemble_context(ranked)
+    # HARD LIMIT to avoid overflow
+    MAX_CONTEXT_CHARS = 2000
+    context = context[:MAX_CONTEXT_CHARS]
     answer = generate_answer(user_query, context)
     return answer
 
